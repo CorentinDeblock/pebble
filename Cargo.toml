@@ -1,0 +1,15 @@
+[package]
+name = "pebble"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ggegui = "0.3.7"
+ggez = "0.9.3"
+lazy_static = "1.4.0"
+mlua = {version="0.8.9", features=["lua54"]}
+notify = "6.0.1"
+once_cell = "1.18.0"
+uuid = {version="1.4.1", features=["v4"]}
