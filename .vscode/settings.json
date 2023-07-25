@@ -1,0 +1,8 @@
+{
+    "rust-analyzer.linkedProjects": [
+        "./Cargo.toml"
+    ],
+    "Lua.diagnostics.globals": [
+        "rust_log"
+    ]
+}

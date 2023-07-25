@@ -1,35 +1,82 @@
-use std::{error::Error, path::Path, sync::mpsc::channel};
+use std::{error::Error, marker::PhantomData};
 
-use mlua::{UserData, FromLua, ToLua, Function};
+use mlua::{FromLua, ToLua, Function};
+
+#[derive(std::default::Default)]
+pub struct Empty {}
+
+pub trait LuaComponent<'lua> {
+    fn from_lua_table(table: mlua::Table<'lua>) -> Result<Self, Box<dyn Error>> where Self: Sized;
+}
 
 #[macro_export]
 macro_rules! user_data {
     (
         #[derive($($derived: ident),*)]
-        pub struct $ty: ident {
-            $($value: ident: $value_type: ty),*
+        $struct_access: vis struct $ty: ident<'a> {
+            $($field_access: vis $value: ident: $value_type: ty),*
         }
     ) => {
         #[derive($($derived),*)]
-        pub struct $ty {
-            $($value: $value_type),*
+        $struct_access struct $ty<'a> {
+            $($field_access $value: $value_type),*,
+            phantom: &'a std::marker::PhantomData<crate::lua::Empty>
         }
 
-        impl<'lua> mlua::FromLua<'lua> for $ty {
+        impl<'lua> mlua::FromLua<'lua> for $ty<'lua> {
             fn from_lua(lua_value: mlua::Value<'lua>, lua: &'lua mlua::Lua) -> mlua::Result<Self> {
                 let table = match lua_value {
                     mlua::Value::Table(table) => Ok(table),
                     mlua::Value::Error(err) => Err(err),
+                    mlua::Value::Nil => Err(mlua::Error::RuntimeError(String::from("Value is Nil"))),
                     _ => Err(mlua::Error::RuntimeError(String::from("Only table are supported")))
                 }.unwrap();
         
                 Ok(Self {
-                    $($value: table.get(stringify!($value)).unwrap()),*
+                    $($value: table.get(stringify!($value)).unwrap()),*,
+                    phantom: &std::marker::PhantomData
+                })
+            }
+        }
+
+        impl<'lua> crate::lua::LuaComponent<'lua> for $ty<'lua> {
+            fn from_lua_table(table: mlua::Table<'lua>) -> Result<Self, Box<dyn Error>> {
+                Ok(Self {
+                    $($value: table.get(stringify!($value))?),*,
+                    phantom: &std::marker::PhantomData,
                 })
             }
         }
     };
 }
+
+pub struct LuaArray<'a, T : mlua::FromLua<'a> + Clone> {
+    pub count: i32,
+    pub data: mlua::Table<'a>,
+    phantom: &'a PhantomData<T>
+}
+
+impl<'a, T : mlua::FromLua<'a> + Clone> LuaArray<'a, T> {
+    pub fn iter(&self) -> mlua::TablePairs<'_, String, T> {
+        self.data.clone().pairs::<std::string::String, T>()
+    }
+}
+
+impl<'a, T : mlua::FromLua<'a> + Clone> mlua::FromLua<'a> for LuaArray<'a, T> {
+    fn from_lua(lua_value: mlua::Value<'a>, _: &'a mlua::Lua) -> mlua::Result<Self> {
+        let table = match lua_value {
+            mlua::Value::Table(table) => Ok(table),
+            mlua::Value::Error(err) => Err(err),
+            _ => Err(mlua::Error::RuntimeError("Not a array".to_string()))
+        }?;
+
+        Ok(Self {
+            count: table.get("count")?,
+            data: table.get("data")?,
+            phantom: &PhantomData
+        })
+    }
+} 
 
 /// Script handle reading, debugging, storing and running lua code
 pub struct Script {
@@ -53,6 +100,10 @@ impl Script {
 
     pub fn get_state(&self) -> &mlua::Lua {
         &self.state
+    }
+
+    pub fn get_name(&self) -> &String {
+        &self.name
     }
 
     pub fn run(&self) -> Result<(), mlua::Error> {
